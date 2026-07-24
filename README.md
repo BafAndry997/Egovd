@@ -1,7 +1,7 @@
 <h1 align="center">govd</h1>
 <p align="center">
   <a href="https://t.me/govd_bot">
-    <img alt="govd" title="govd" src="https://i.imgur.com/Vx8Psjn.png" width="450">
+    <img alt="govd" title="govd" src="https://i.imgur.com/x1SXe1o.png" width="450">
   </a>
 </p>
 
