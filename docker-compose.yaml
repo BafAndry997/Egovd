@@ -1,6 +1,6 @@
 services:
   bot:
-    image: govdbot/govd:main
+    image: ${BOT_IMAGE:-ghcr.io/bafandry997/egovd:main}
     container_name: bot
     restart: unless-stopped
     networks:
