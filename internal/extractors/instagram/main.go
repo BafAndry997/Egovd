@@ -143,9 +143,14 @@ func GetIGramPost(ctx *models.ExtractorContext) (*models.Media, error) {
 		if err != nil {
 			return nil, err
 		}
-		thumbnailURL, err := GetCDNURL(obj.Thumb)
-		if err != nil {
-			return nil, err
+		// the thumbnail is optional: if igram doesn't provide one,
+		// it gets extracted from the video itself later on
+		var thumbnailURL string
+		if obj.Thumb != "" {
+			thumbnailURL, err = GetCDNURL(obj.Thumb)
+			if err != nil {
+				return nil, err
+			}
 		}
 		fileExt := urlObj.Ext
 		formatID := urlObj.Type
@@ -157,7 +162,7 @@ func GetIGramPost(ctx *models.ExtractorContext) (*models.Media, error) {
 				URL:          []string{contentURL},
 				VideoCodec:   database.MediaCodecAvc,
 				AudioCodec:   database.MediaCodecAac,
-				ThumbnailURL: []string{thumbnailURL},
+				ThumbnailURL: optionalURL(thumbnailURL),
 			},
 			)
 		case "jpg", "png", "webp", "heic", "jpeg":
@@ -194,6 +199,9 @@ func GetIGramStory(ctx *models.ExtractorContext) (*models.Media, error) {
 	item := media.NewItem()
 	if isVideo {
 		video := GetBestVideoVersion(result.VideoVersions)
+		if video == nil || video.URL == "" {
+			return nil, fmt.Errorf("no video url found")
+		}
 		item.AddFormats(&models.MediaFormat{
 			FormatID:   "video",
 			Type:       database.MediaTypeVideo,
@@ -202,7 +210,13 @@ func GetIGramStory(ctx *models.ExtractorContext) (*models.Media, error) {
 			AudioCodec: database.MediaCodecAac,
 		})
 	} else {
+		if result.ImageVersions == nil {
+			return nil, fmt.Errorf("no image versions found")
+		}
 		image := GetBestCandidate(result.ImageVersions.Candidates)
+		if image == nil || image.URL == "" {
+			return nil, fmt.Errorf("no image url found")
+		}
 		item.AddFormats(&models.MediaFormat{
 			Type:     database.MediaTypePhoto,
 			FormatID: "photo",

@@ -133,6 +133,11 @@ func downloadFormat(
 	if len(format.URL) == 0 {
 		return nil, fmt.Errorf("no URL found for selected format")
 	}
+	for _, formatURL := range format.URL {
+		if formatURL == "" {
+			return nil, fmt.Errorf("empty URL found for selected format")
+		}
+	}
 
 	fileName := format.GetFileName()
 	var filePath string
