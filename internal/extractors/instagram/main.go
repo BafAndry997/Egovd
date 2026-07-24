@@ -134,28 +134,24 @@ func GetIGramPost(ctx *models.ExtractorContext) (*models.Media, error) {
 
 	media := ctx.NewMedia()
 	for _, obj := range details.Items {
-		item := media.NewItem()
-		if len(obj.URL) == 0 {
-			return nil, fmt.Errorf("no media url found")
-		}
-		urlObj := obj.URL[0]
-		contentURL, err := GetCDNURL(urlObj.URL)
+		urlObj, contentURL, err := GetIGramMediaURL(obj.URL)
 		if err != nil {
 			return nil, err
 		}
-		// the thumbnail is optional: if igram doesn't provide one,
-		// it gets extracted from the video itself later on
+		// the thumbnail is optional: if igram doesn't provide a usable
+		// one, it gets extracted from the video itself later on
 		var thumbnailURL string
 		if obj.Thumb != "" {
 			thumbnailURL, err = GetCDNURL(obj.Thumb)
 			if err != nil {
-				return nil, err
+				ctx.Debugf("failed to parse igram thumbnail URL: %v", err)
 			}
 		}
 		fileExt := urlObj.Ext
 		formatID := urlObj.Type
 		switch fileExt {
 		case "mp4":
+			item := media.NewItem()
 			item.AddFormats(&models.MediaFormat{
 				FormatID:     formatID,
 				Type:         database.MediaTypeVideo,
@@ -166,6 +162,7 @@ func GetIGramPost(ctx *models.ExtractorContext) (*models.Media, error) {
 			},
 			)
 		case "jpg", "png", "webp", "heic", "jpeg":
+			item := media.NewItem()
 			item.AddFormats(&models.MediaFormat{
 				Type:     database.MediaTypePhoto,
 				FormatID: formatID,

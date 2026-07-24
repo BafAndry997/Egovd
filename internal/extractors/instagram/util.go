@@ -63,34 +63,39 @@ var (
 func ParseGQLMedia(ctx *models.ExtractorContext, data *Media) (*models.Media, error) {
 	var caption string
 	if data.EdgeMediaToCaption != nil && len(data.EdgeMediaToCaption.Edges) > 0 {
-		caption = data.EdgeMediaToCaption.Edges[0].Node.Text
+		if node := data.EdgeMediaToCaption.Edges[0].Node; node != nil {
+			caption = node.Text
+		}
 	}
 
 	media := ctx.NewMedia()
 	media.SetCaption(caption)
 
-	switch data.Typename {
-	case "GraphVideo", "XDTGraphVideo":
-		if data.VideoURL == "" {
-			return nil, fmt.Errorf("empty video_url for %s", data.Typename)
+	// the item is created only once the format is known to be usable, so
+	// that a partially broken response doesn't produce empty items
+	addMediaFormat := func(format *models.MediaFormat) {
+		if len(format.URL) == 0 || format.URL[0] == "" {
+			return
 		}
 		item := media.NewItem()
-		item.AddFormats(&models.MediaFormat{
+		item.AddFormats(format)
+	}
+
+	switch data.Typename {
+	case "GraphVideo", "XDTGraphVideo":
+		width, height := mediaDimensions(data.Dimensions)
+		addMediaFormat(&models.MediaFormat{
 			FormatID:     "video",
 			Type:         database.MediaTypeVideo,
 			VideoCodec:   database.MediaCodecAvc,
 			AudioCodec:   database.MediaCodecAac,
 			URL:          []string{data.VideoURL},
 			ThumbnailURL: optionalURL(data.DisplayURL),
-			Width:        data.Dimensions.Width,
-			Height:       data.Dimensions.Height,
+			Width:        width,
+			Height:       height,
 		})
 	case "GraphImage", "XDTGraphImage":
-		if data.DisplayURL == "" {
-			return nil, fmt.Errorf("empty display_url for %s", data.Typename)
-		}
-		item := media.NewItem()
-		item.AddFormats(&models.MediaFormat{
+		addMediaFormat(&models.MediaFormat{
 			FormatID: "image",
 			Type:     database.MediaTypePhoto,
 			URL:      []string{data.DisplayURL},
@@ -101,32 +106,26 @@ func ParseGQLMedia(ctx *models.ExtractorContext, data *Media) (*models.Media, er
 
 			for i := range edges {
 				node := edges[i].Node
+				if node == nil {
+					continue
+				}
 
 				switch node.Typename {
 				case "GraphVideo", "XDTGraphVideo":
-					// skip children without a usable url, so that a
-					// partially broken response can still be served
-					if node.VideoURL == "" {
-						continue
-					}
-					item := media.NewItem()
-					item.AddFormats(&models.MediaFormat{
+					width, height := mediaDimensions(node.Dimensions)
+					addMediaFormat(&models.MediaFormat{
 						FormatID:     "video",
 						Type:         database.MediaTypeVideo,
 						VideoCodec:   database.MediaCodecAvc,
 						AudioCodec:   database.MediaCodecAac,
 						URL:          []string{node.VideoURL},
 						ThumbnailURL: optionalURL(node.DisplayURL),
-						Width:        node.Dimensions.Width,
-						Height:       node.Dimensions.Height,
+						Width:        width,
+						Height:       height,
 					})
 
 				case "GraphImage", "XDTGraphImage":
-					if node.DisplayURL == "" {
-						continue
-					}
-					item := media.NewItem()
-					item.AddFormats(&models.MediaFormat{
+					addMediaFormat(&models.MediaFormat{
 						FormatID: "image",
 						Type:     database.MediaTypePhoto,
 						URL:      []string{node.DisplayURL},
@@ -139,7 +138,7 @@ func ParseGQLMedia(ctx *models.ExtractorContext, data *Media) (*models.Media, er
 	// an empty media would be treated as a success by the caller,
 	// preventing the other extraction methods from being tried
 	if len(media.Items) == 0 {
-		return nil, fmt.Errorf("no media found for %s", data.Typename)
+		return nil, fmt.Errorf("no playable media found for %s", data.Typename)
 	}
 
 	return media, nil
@@ -152,6 +151,14 @@ func optionalURL(contentURL string) []string {
 		return nil
 	}
 	return []string{contentURL}
+}
+
+// missing dimensions are filled in later by probing the file itself
+func mediaDimensions(dimensions *Dimensions) (int32, int32) {
+	if dimensions == nil {
+		return 0, 0
+	}
+	return dimensions.Width, dimensions.Height
 }
 
 func ParseEmbedGQL(body []byte) (*Media, error) {
@@ -302,28 +309,66 @@ func ParseIGramResponse(body []byte) (*IGramResponse, error) {
 	}, nil
 }
 
-func GetCDNURL(contentURL string) (string, error) {
-	if contentURL == "" {
-		return "", fmt.Errorf("empty igram URL")
+// picks the first usable entry, as igram may return
+// several of them and the first one isn't always valid
+func GetIGramMediaURL(urls []*IGramMediaURL) (*IGramMediaURL, string, error) {
+	if len(urls) == 0 {
+		return nil, "", fmt.Errorf("no media url found")
 	}
-	parsedURL, err := url.Parse(contentURL)
+	var lastErr error
+	for _, urlObj := range urls {
+		if urlObj == nil || urlObj.URL == "" {
+			continue
+		}
+		contentURL, err := GetCDNURL(urlObj.URL)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		return urlObj, contentURL, nil
+	}
+	if lastErr != nil {
+		return nil, "", fmt.Errorf("no valid media url found: %w", lastErr)
+	}
+	return nil, "", fmt.Errorf("no valid media url found")
+}
+
+func GetCDNURL(contentURL string) (string, error) {
+	contentURL, parsedURL, err := normalizeIGramURL(contentURL)
 	if err != nil {
-		return "", fmt.Errorf("can't parse igram URL: %w", err)
+		return "", err
 	}
 	queryParams, err := url.ParseQuery(parsedURL.RawQuery)
 	if err != nil {
 		return "", fmt.Errorf("can't unescape igram URL: %w", err)
 	}
-	cdnURL := queryParams.Get("uri")
-	if cdnURL == "" {
-		// igram may hand out the cdn link directly,
-		// without wrapping it in the uri query param
-		if parsedURL.Scheme == "http" || parsedURL.Scheme == "https" {
-			return contentURL, nil
+	if cdnURL := queryParams.Get("uri"); cdnURL != "" {
+		cdnURL, _, err = normalizeIGramURL(cdnURL)
+		if err != nil {
+			return "", err
 		}
-		return "", fmt.Errorf("no cdn url found in igram URL: %s", contentURL)
+		return cdnURL, nil
 	}
-	return cdnURL, nil
+	// igram may hand out the cdn link directly,
+	// without wrapping it in the uri query param
+	return contentURL, nil
+}
+
+func normalizeIGramURL(rawURL string) (string, *url.URL, error) {
+	trimmedURL := strings.TrimSpace(rawURL)
+	parsedURL, err := url.Parse(trimmedURL)
+	if err != nil {
+		return "", nil, fmt.Errorf("can't parse igram URL: %w", err)
+	}
+	// protocol-relative urls (//host/path) parse without a scheme
+	if parsedURL.Scheme == "" && parsedURL.Host != "" {
+		parsedURL.Scheme = "https"
+		trimmedURL = parsedURL.String()
+	}
+	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
+		return "", nil, fmt.Errorf("invalid igram URL scheme: %q", parsedURL.Scheme)
+	}
+	return trimmedURL, parsedURL, nil
 }
 
 func GetGQLData(ctx *models.ExtractorContext) (*GraphQLData, error) {
