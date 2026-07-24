@@ -280,22 +280,61 @@ func ParseIGramResponse(body []byte) (*IGramResponse, error) {
 	}, nil
 }
 
-func GetCDNURL(contentURL string) (string, error) {
-	parsedURL, err := url.Parse(contentURL)
-	if err != nil {
-		return "", fmt.Errorf("can't parse igram URL: %w", err)
+func GetIGramMediaURL(urls []*IGramMediaURL) (*IGramMediaURL, string, error) {
+	if len(urls) == 0 {
+		return nil, "", fmt.Errorf("no media url found")
 	}
-	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
-		return "", fmt.Errorf("invalid igram URL scheme: %q", parsedURL.Scheme)
+	var lastErr error
+	for _, urlObj := range urls {
+		if urlObj == nil || urlObj.URL == "" {
+			continue
+		}
+		contentURL, err := GetCDNURL(urlObj.URL)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		return urlObj, contentURL, nil
+	}
+	if lastErr != nil {
+		return nil, "", fmt.Errorf("no valid media url found: %w", lastErr)
+	}
+	return nil, "", fmt.Errorf("no valid media url found")
+}
+
+func GetCDNURL(contentURL string) (string, error) {
+	contentURL, parsedURL, err := normalizeIGramURL(contentURL)
+	if err != nil {
+		return "", err
 	}
 	queryParams, err := url.ParseQuery(parsedURL.RawQuery)
 	if err != nil {
 		return "", fmt.Errorf("can't unescape igram URL: %w", err)
 	}
 	if cdnURL := queryParams.Get("uri"); cdnURL != "" {
+		cdnURL, _, err = normalizeIGramURL(cdnURL)
+		if err != nil {
+			return "", err
+		}
 		return cdnURL, nil
 	}
 	return contentURL, nil
+}
+
+func normalizeIGramURL(rawURL string) (string, *url.URL, error) {
+	trimmedURL := strings.TrimSpace(rawURL)
+	parsedURL, err := url.Parse(trimmedURL)
+	if err != nil {
+		return "", nil, fmt.Errorf("can't parse igram URL: %w", err)
+	}
+	if parsedURL.Scheme == "" && parsedURL.Host != "" {
+		parsedURL.Scheme = "https"
+		trimmedURL = parsedURL.String()
+	}
+	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
+		return "", nil, fmt.Errorf("invalid igram URL scheme: %q", parsedURL.Scheme)
+	}
+	return trimmedURL, parsedURL, nil
 }
 
 func GetGQLData(ctx *models.ExtractorContext) (*GraphQLData, error) {

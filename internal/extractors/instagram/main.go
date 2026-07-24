@@ -134,33 +134,32 @@ func GetIGramPost(ctx *models.ExtractorContext) (*models.Media, error) {
 
 	media := ctx.NewMedia()
 	for _, obj := range details.Items {
-		item := media.NewItem()
-		if len(obj.URL) == 0 {
-			return nil, fmt.Errorf("no media url found")
-		}
-		urlObj := obj.URL[0]
-		contentURL, err := GetCDNURL(urlObj.URL)
+		urlObj, contentURL, err := GetIGramMediaURL(obj.URL)
 		if err != nil {
 			return nil, err
 		}
 		thumbnailURL, err := GetCDNURL(obj.Thumb)
 		if err != nil {
-			return nil, err
+			ctx.Debugf("failed to parse igram thumbnail URL: %v", err)
 		}
 		fileExt := urlObj.Ext
 		formatID := urlObj.Type
 		switch fileExt {
 		case "mp4":
-			item.AddFormats(&models.MediaFormat{
-				FormatID:     formatID,
-				Type:         database.MediaTypeVideo,
-				URL:          []string{contentURL},
-				VideoCodec:   database.MediaCodecAvc,
-				AudioCodec:   database.MediaCodecAac,
-				ThumbnailURL: []string{thumbnailURL},
-			},
-			)
+			format := &models.MediaFormat{
+				FormatID:   formatID,
+				Type:       database.MediaTypeVideo,
+				URL:        []string{contentURL},
+				VideoCodec: database.MediaCodecAvc,
+				AudioCodec: database.MediaCodecAac,
+			}
+			if thumbnailURL != "" {
+				format.ThumbnailURL = []string{thumbnailURL}
+			}
+			item := media.NewItem()
+			item.AddFormats(format)
 		case "jpg", "png", "webp", "heic", "jpeg":
+			item := media.NewItem()
 			item.AddFormats(&models.MediaFormat{
 				Type:     database.MediaTypePhoto,
 				FormatID: formatID,
