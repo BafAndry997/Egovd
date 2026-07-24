@@ -285,12 +285,17 @@ func GetCDNURL(contentURL string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("can't parse igram URL: %w", err)
 	}
+	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
+		return "", fmt.Errorf("invalid igram URL scheme: %q", parsedURL.Scheme)
+	}
 	queryParams, err := url.ParseQuery(parsedURL.RawQuery)
 	if err != nil {
 		return "", fmt.Errorf("can't unescape igram URL: %w", err)
 	}
-	cdnURL := queryParams.Get("uri")
-	return cdnURL, nil
+	if cdnURL := queryParams.Get("uri"); cdnURL != "" {
+		return cdnURL, nil
+	}
+	return contentURL, nil
 }
 
 func GetGQLData(ctx *models.ExtractorContext) (*GraphQLData, error) {
