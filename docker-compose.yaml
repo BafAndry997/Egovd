@@ -1,6 +1,11 @@
 services:
   bot:
     image: ${BOT_IMAGE:-ghcr.io/bafandry997/egovd:main}
+    # `docker compose up -d --build` builds from this source tree instead
+    # of pulling, so the bot can be deployed without any registry at all
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: bot
     restart: unless-stopped
     networks:
