@@ -1,6 +1,6 @@
 <h1 align="center">govd</h1>
 <p align="center">
-  <a href="https://t.me/govd_bot">
+  <a href="https://t.me/">
     <img alt="govd" title="govd" src="https://i.imgur.com/x1SXe1o.png" width="450">
   </a>
 </p>
@@ -18,33 +18,39 @@
   <a href="https://tgbotmau.quoi.dev/?bot=govd_bot" target="_blank"><img alt="@govd_bot MAU" title="@govd_bot MAU" src="https://tgbotmau.quoi.dev/api/bot/govd_bot/mau/badge?style=flat-square"></a>
 </p>
 
-## features
+## 🚀 EGOVD
 
-* vast number of extractors supported
-* extremely lightweight
-    * minimal memory usage (~80MB)
-    * minimal disk usage (~150MB)
-* easy to deploy with docker
-* highly configurable and extensible
-* supports self hosted telegram bot api
-* supports authentication for extractors
-* available in private chats, groups and inline mode
-* translation ready (i18n)
+**EGOVD** is a lightweight, fast, and highly configurable Telegram bot designed to download media from multiple platforms directly inside Telegram. 📲
 
-## getting started
+Simply send a link to the bot and let EGOVD handle the rest: content detection, extraction, download, and delivery in the best available quality. ⚡
 
-everything you need to get started with the project can be found in the [wiki](https://github.com/govdbot/govd/wiki).
+## ✨ Main Features
 
+* 📥 Download videos, images, audio, and other media
+* 🌐 Support for a wide range of websites and extractors
+* ⚡ Fast performance with minimal resource usage
+* 🧠 Approximately **80 MB of RAM usage**
+* 💾 Lightweight installation requiring around **150 MB of disk space**
+* 🐳 Easy deployment with **Docker**
+* 🤖 Works in private chats, groups, and inline mode
+* 🔐 Supports authentication and cookies for compatible extractors
+* 🖥️ Compatible with self-hosted Telegram Bot API servers
+* 🌍 Translation-ready with internationalization support
+* 🛠️ Highly configurable and easy to extend
 
-## migrating from v1
+## 🎯 How It Works
 
-if you are migrating from govd v1 to v2, refer to the [migration tool](https://github.com/govdbot/migrate).
+1. 🔗 Send a media link to the bot
+2. 🔍 EGOVD automatically analyzes the page
+3. 📦 The content is processed and downloaded
+4. 📲 The file is sent directly through Telegram
 
-## community
+## 🐳 Easy to Deploy
 
-- [official bot](https://t.me/govd_bot)
-- [support chat](https://t.me/govdsupport)
+EGOVD is designed for simple Docker deployment, making installation and updates easy on home servers, VPS environments, and self-hosted systems.
 
-## license
+## 💙 Project Goal
 
-this project is licensed under the [mit license](LICENSE).
+The goal of EGOVD is to provide a simple, lightweight, and reliable Telegram downloader that brings multiple media download services together in one easy-to-use bot.
+
+> 📡 One link, one message, your content.
