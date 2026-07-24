@@ -68,11 +68,17 @@ func ParseGQLMedia(ctx *models.ExtractorContext, data *Media) (*models.Media, er
 
 	media := ctx.NewMedia()
 	media.SetCaption(caption)
+	addMediaFormat := func(format *models.MediaFormat) {
+		if len(format.URL) == 0 || format.URL[0] == "" {
+			return
+		}
+		item := media.NewItem()
+		item.AddFormats(format)
+	}
 
 	switch data.Typename {
 	case "GraphVideo", "XDTGraphVideo":
-		item := media.NewItem()
-		item.AddFormats(&models.MediaFormat{
+		addMediaFormat(&models.MediaFormat{
 			FormatID:     "video",
 			Type:         database.MediaTypeVideo,
 			VideoCodec:   database.MediaCodecAvc,
@@ -83,8 +89,7 @@ func ParseGQLMedia(ctx *models.ExtractorContext, data *Media) (*models.Media, er
 			Height:       data.Dimensions.Height,
 		})
 	case "GraphImage", "XDTGraphImage":
-		item := media.NewItem()
-		item.AddFormats(&models.MediaFormat{
+		addMediaFormat(&models.MediaFormat{
 			FormatID: "image",
 			Type:     database.MediaTypePhoto,
 			URL:      []string{data.DisplayURL},
@@ -94,12 +99,11 @@ func ParseGQLMedia(ctx *models.ExtractorContext, data *Media) (*models.Media, er
 			edges := data.EdgeSidecarToChildren.Edges
 
 			for i := range edges {
-				item := media.NewItem()
 				node := edges[i].Node
 
 				switch node.Typename {
 				case "GraphVideo", "XDTGraphVideo":
-					item.AddFormats(&models.MediaFormat{
+					addMediaFormat(&models.MediaFormat{
 						FormatID:     "video",
 						Type:         database.MediaTypeVideo,
 						VideoCodec:   database.MediaCodecAvc,
@@ -111,7 +115,7 @@ func ParseGQLMedia(ctx *models.ExtractorContext, data *Media) (*models.Media, er
 					})
 
 				case "GraphImage", "XDTGraphImage":
-					item.AddFormats(&models.MediaFormat{
+					addMediaFormat(&models.MediaFormat{
 						FormatID: "image",
 						Type:     database.MediaTypePhoto,
 						URL:      []string{node.DisplayURL},
@@ -119,6 +123,10 @@ func ParseGQLMedia(ctx *models.ExtractorContext, data *Media) (*models.Media, er
 				}
 			}
 		}
+	}
+
+	if len(media.Items) == 0 {
+		return nil, fmt.Errorf("no playable media found")
 	}
 
 	return media, nil
