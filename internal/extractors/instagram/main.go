@@ -6,6 +6,7 @@ import (
 	"maps"
 	"net/http"
 	"regexp"
+	"strings"
 
 	"github.com/bytedance/sonic"
 	"github.com/govdbot/govd/internal/database"
@@ -26,9 +27,22 @@ var Extractor = &models.Extractor{
 	Redirect:   false,
 
 	GetFunc: func(ctx *models.ExtractorContext) (*models.ExtractorResponse, error) {
+		// method 0: private api. needs a session, but it's the only one
+		// that returns video urls, and it depends on no persisted query id
+		if HasSession(ctx) {
+			media, err := GetPrivateAPIMedia(ctx)
+			if err == nil {
+				ctx.Debugf("extracted via private api")
+				return &models.ExtractorResponse{
+					Media: media,
+				}, nil
+			}
+			ctx.Debugf("private api failed: %v", err)
+		}
 		// method 1: get media from GQL web API
 		media, err1 := GetGQLMedia(ctx)
 		if err1 == nil {
+			ctx.Debugf("extracted via gql")
 			return &models.ExtractorResponse{
 				Media: media,
 			}, nil
@@ -36,6 +50,7 @@ var Extractor = &models.Extractor{
 		// method 2: get media from embed page
 		media, err2 := GetEmbedMedia(ctx)
 		if err2 == nil {
+			ctx.Debugf("extracted via embed page")
 			return &models.ExtractorResponse{
 				Media: media,
 			}, nil
@@ -43,6 +58,7 @@ var Extractor = &models.Extractor{
 		// method 3: get media from 3rd party service (unlikely)
 		media, err3 := GetIGramPost(ctx)
 		if err3 == nil {
+			ctx.Debugf("extracted via igram")
 			return &models.ExtractorResponse{
 				Media: media,
 			}, nil
@@ -91,6 +107,51 @@ func GetGQLMedia(ctx *models.ExtractorContext) (*models.Media, error) {
 		return nil, fmt.Errorf("failed to get graph data: %w", err)
 	}
 	return ParseGQLMedia(ctx, graphData.ShortcodeMedia)
+}
+
+func GetPrivateAPIMedia(ctx *models.ExtractorContext) (*models.Media, error) {
+	mediaID, err := ShortcodeToMediaID(ctx.ContentID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build media id: %w", err)
+	}
+
+	headers := map[string]string{
+		"x-ig-app-id": instagramAppID,
+		"Accept":      "*/*",
+		"Referer":     "https://www.instagram.com/p/" + ctx.ContentID + "/",
+	}
+	resp, err := ctx.Fetch(
+		http.MethodGet,
+		fmt.Sprintf(privateAPIEndpoint, mediaID),
+		&networking.RequestParams{
+			Headers: headers,
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	logger.WriteFile("ig_private_api_response", resp)
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to get media info: %s", resp.Status)
+	}
+	// without a valid session instagram answers with the web app itself
+	contentType := resp.Header.Get("Content-Type")
+	if !strings.Contains(contentType, "json") {
+		return nil, fmt.Errorf("session not accepted, got %q", contentType)
+	}
+
+	var response PrivateMediaResponse
+	decoder := sonic.ConfigFastest.NewDecoder(resp.Body)
+	if err := decoder.Decode(&response); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+	if len(response.Items) == 0 {
+		return nil, fmt.Errorf("no items in response")
+	}
+	return ParsePrivateMedia(ctx, response.Items[0])
 }
 
 func GetEmbedMedia(ctx *models.ExtractorContext) (*models.Media, error) {

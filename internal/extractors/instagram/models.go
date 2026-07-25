@@ -113,6 +113,24 @@ type IGramStoryResponse struct {
 	Result []*Result `json:"result"`
 }
 
+// response of the private api, which needs a session but, unlike the
+// graphql endpoint, doesn't depend on a persisted query id
+type PrivateMediaResponse struct {
+	Items []*PrivateMediaItem `json:"items"`
+}
+
+type PrivateMediaItem struct {
+	MediaType     int                  `json:"media_type"`
+	VideoVersions []*VideoVersions     `json:"video_versions"`
+	ImageVersions *ImageVersions       `json:"image_versions2"`
+	CarouselMedia []*PrivateMediaItem  `json:"carousel_media"`
+	Caption       *PrivateMediaCaption `json:"caption"`
+}
+
+type PrivateMediaCaption struct {
+	Text string `json:"text"`
+}
+
 type VideoVersions struct {
 	URL             string `json:"url"`
 	Width           int    `json:"width"`

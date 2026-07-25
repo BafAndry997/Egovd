@@ -29,6 +29,17 @@ const (
 	graphQLEndpoint = "https://www.instagram.com/graphql/query/"
 	polarisAction   = "PolarisPostActionLoadPostQueryQuery"
 
+	privateAPIEndpoint = "https://www.instagram.com/api/v1/media/%s/info/"
+	instagramAppID     = "936619743392459"
+
+	// shortcodes are the media id written in this alphabet
+	shortcodeAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+
+	// media_type values returned by the private api
+	privateTypePhoto    = 1
+	privateTypeVideo    = 2
+	privateTypeCarousel = 8
+
 	igramHostname = "api-wh.igram.world"
 	igramAPIBase  = "api.igram.world"
 	igramHMACKey  = "75f2d70d3724f98e4a7d1ffd0ba9cfd907f3ae2632ee159980e2c521bff62358"
@@ -450,6 +461,107 @@ func GetGQLData(ctx *models.ExtractorContext) (*GraphQLData, error) {
 	return response.Data, nil
 }
 
+// the shortcode is the media id encoded in base64 over a custom alphabet,
+// so the private api id is derived locally, without an extra request
+func ShortcodeToMediaID(shortcode string) (string, error) {
+	if shortcode == "" {
+		return "", fmt.Errorf("empty shortcode")
+	}
+	mediaID := new(big.Int)
+	base := big.NewInt(int64(len(shortcodeAlphabet)))
+	for _, char := range shortcode {
+		index := strings.IndexRune(shortcodeAlphabet, char)
+		if index < 0 {
+			return "", fmt.Errorf("invalid character %q in shortcode", char)
+		}
+		mediaID.Mul(mediaID, base)
+		mediaID.Add(mediaID, big.NewInt(int64(index)))
+	}
+	return mediaID.String(), nil
+}
+
+// reports whether a logged in session was loaded from the cookie file
+func HasSession(ctx *models.ExtractorContext) bool {
+	if ctx.HTTPClient == nil {
+		return false
+	}
+	_, userID := InstagramSession(ctx.HTTPClient.Cookies)
+	return userID != ""
+}
+
+func ParsePrivateMedia(ctx *models.ExtractorContext, item *PrivateMediaItem) (*models.Media, error) {
+	if item == nil {
+		return nil, fmt.Errorf("empty media item")
+	}
+	media := ctx.NewMedia()
+	if item.Caption != nil {
+		media.SetCaption(item.Caption.Text)
+	}
+
+	children := []*PrivateMediaItem{item}
+	if item.MediaType == privateTypeCarousel {
+		children = item.CarouselMedia
+	}
+	for i, child := range children {
+		format, err := privateMediaFormat(child)
+		if err != nil {
+			return nil, fmt.Errorf("item %d: %w", i, err)
+		}
+		media.NewItem().AddFormats(format)
+	}
+
+	if len(media.Items) == 0 {
+		return nil, fmt.Errorf("no playable media found")
+	}
+	return media, nil
+}
+
+func privateMediaFormat(item *PrivateMediaItem) (*models.MediaFormat, error) {
+	if item == nil {
+		return nil, fmt.Errorf("empty media item")
+	}
+	switch item.MediaType {
+	case privateTypeVideo:
+		video := GetBestVideoVersion(item.VideoVersions)
+		if video == nil || video.URL == "" {
+			return nil, fmt.Errorf("no video url found")
+		}
+		return &models.MediaFormat{
+			FormatID:     "video",
+			Type:         database.MediaTypeVideo,
+			VideoCodec:   database.MediaCodecAvc,
+			AudioCodec:   database.MediaCodecAac,
+			URL:          []string{video.URL},
+			ThumbnailURL: optionalURL(bestCandidateURL(item.ImageVersions)),
+			Width:        int32(video.Width),
+			Height:       int32(video.Height),
+		}, nil
+	case privateTypePhoto:
+		photoURL := bestCandidateURL(item.ImageVersions)
+		if photoURL == "" {
+			return nil, fmt.Errorf("no image url found")
+		}
+		return &models.MediaFormat{
+			FormatID: "photo",
+			Type:     database.MediaTypePhoto,
+			URL:      []string{photoURL},
+		}, nil
+	default:
+		return nil, fmt.Errorf("unsupported media type: %d", item.MediaType)
+	}
+}
+
+func bestCandidateURL(versions *ImageVersions) string {
+	if versions == nil {
+		return ""
+	}
+	candidate := GetBestCandidate(versions.Candidates)
+	if candidate == nil {
+		return ""
+	}
+	return candidate.URL
+}
+
 // extracts the values the graphql endpoint needs to recognise a session, out
 // of the cookies loaded from private/cookies/instagram.txt. both are empty
 // when no cookie file is present, which keeps the anonymous behaviour.
@@ -476,7 +588,6 @@ func BuildGQLData(sessionCSRF string, sessionUserID string) (map[string]string, 
 		sessionInternalID     = "7436540909012459023"
 		apiVersion            = "1"
 		rolloutHash           = "1019933358"
-		appID                 = "936619743392459"
 		bloksVersionID        = "6309c8d03d8a3f47a1658ba38b304a3f837142ef5f637ebf1f8f52d4b802951e"
 		asbdID                = "129477"
 		hiddenState           = "20126.HYP:instagram_web_pkg.2.1...0"
@@ -508,7 +619,7 @@ func BuildGQLData(sessionCSRF string, sessionUserID string) (map[string]string, 
 		"ig_nrcb=1",
 	}
 	headers := map[string]string{
-		"x-ig-app-id":        appID,
+		"x-ig-app-id":        instagramAppID,
 		"X-FB-LSD":           sessionData,
 		"X-CSRFToken":        csrfToken,
 		"X-Bloks-Version-Id": bloksVersionID,
