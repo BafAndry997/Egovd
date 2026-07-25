@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 
 	"github.com/bytedance/sonic"
 )
@@ -41,13 +42,20 @@ func (client *HTTPClient) FetchWithContext(
 	for k, v := range client.Headers {
 		req.Header.Set(k, v)
 	}
+	host := req.URL.Hostname()
 	for _, cookie := range client.Cookies {
+		if !cookieMatchesHost(cookie, host) {
+			continue
+		}
 		req.AddCookie(cookie)
 	}
 	for k, v := range params.Headers {
 		req.Header.Set(k, v)
 	}
 	for _, cookie := range params.Cookies {
+		if !cookieMatchesHost(cookie, host) {
+			continue
+		}
 		req.AddCookie(cookie)
 	}
 	if req.Header.Get("User-Agent") == "" {
@@ -59,6 +67,22 @@ func (client *HTTPClient) FetchWithContext(
 		return nil, err
 	}
 	return resp, nil
+}
+
+// http.Request.AddCookie ignores the cookie domain and writes every cookie
+// into a single header, so a session loaded for an extractor would also be
+// sent to the third party services that same extractor calls. Cookies are
+// scoped to the domain they declare; those without one stay request-wide.
+func cookieMatchesHost(cookie *http.Cookie, host string) bool {
+	if cookie == nil {
+		return false
+	}
+	domain := strings.ToLower(strings.TrimPrefix(cookie.Domain, "."))
+	if domain == "" {
+		return true
+	}
+	host = strings.ToLower(host)
+	return host == domain || strings.HasSuffix(host, "."+domain)
 }
 
 func generateChromeUA() string {

@@ -40,6 +40,17 @@ Simply send a link to the bot and let EGOVD handle the rest: content detection, 
 
 EGOVD is designed for simple Docker deployment, making installation and updates easy on home servers, VPS environments, and self-hosted systems.
 
+## 🔐 Extractor Cookies
+
+Some sites hand back incomplete data to anonymous requests. Instagram, for one, leaves `video_url` out of reels unless the request carries a session, so only the cover image comes through. 🍪
+
+To authenticate an extractor, export that site's cookies in Netscape format (any "cookies.txt" browser extension does it) and save them as `private/cookies/<extractor_id>.txt` — for example `private/cookies/instagram.txt`. The folder is gitignored and already mounted into the container.
+
+Cookies are parsed once and kept in memory, so **restart the container after replacing a file**. They are only ever sent to the domain they declare, so a session is never passed on to the third-party services an extractor may fall back to. 🛡️
+
+> [!WARNING]
+> Downloading automatically through a logged-in account can be read as unusual activity and get it checkpointed or suspended. Use a secondary account.
+
 ## 💙 Project Goal
 
 The goal of EGOVD is to provide a simple, lightweight, and reliable Telegram downloader that brings multiple media download services together in one easy-to-use bot.

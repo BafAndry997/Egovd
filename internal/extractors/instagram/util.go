@@ -110,8 +110,15 @@ func ParseGQLMedia(ctx *models.ExtractorContext, data *Media) (*models.Media, er
 					continue
 				}
 
+				// a child that can't be resolved fails the whole album: an
+				// unauthenticated response carries no video_url, and serving
+				// just the photos would silently drop part of the carousel.
+				// failing here lets the next extraction method try instead
 				switch node.Typename {
 				case "GraphVideo", "XDTGraphVideo":
+					if node.VideoURL == "" {
+						return nil, fmt.Errorf("no video_url for sidecar child %d", i)
+					}
 					width, height := mediaDimensions(node.Dimensions)
 					addMediaFormat(&models.MediaFormat{
 						FormatID:     "video",
@@ -125,6 +132,9 @@ func ParseGQLMedia(ctx *models.ExtractorContext, data *Media) (*models.Media, er
 					})
 
 				case "GraphImage", "XDTGraphImage":
+					if node.DisplayURL == "" {
+						return nil, fmt.Errorf("no display_url for sidecar child %d", i)
+					}
 					addMediaFormat(&models.MediaFormat{
 						FormatID: "image",
 						Type:     database.MediaTypePhoto,
@@ -372,7 +382,13 @@ func normalizeIGramURL(rawURL string) (string, *url.URL, error) {
 }
 
 func GetGQLData(ctx *models.ExtractorContext) (*GraphQLData, error) {
-	graphHeaders, body, err := BuildGQLData()
+	var sessionCookies []*http.Cookie
+	if ctx.HTTPClient != nil {
+		sessionCookies = ctx.HTTPClient.Cookies
+	}
+	sessionCSRF, sessionUserID := InstagramSession(sessionCookies)
+
+	graphHeaders, body, err := BuildGQLData(sessionCSRF, sessionUserID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build GQL data: %w", err)
 	}
@@ -434,7 +450,25 @@ func GetGQLData(ctx *models.ExtractorContext) (*GraphQLData, error) {
 	return response.Data, nil
 }
 
-func BuildGQLData() (map[string]string, map[string]string, error) {
+// extracts the values the graphql endpoint needs to recognise a session, out
+// of the cookies loaded from private/cookies/instagram.txt. both are empty
+// when no cookie file is present, which keeps the anonymous behaviour.
+func InstagramSession(cookies []*http.Cookie) (csrfToken string, userID string) {
+	for _, cookie := range cookies {
+		if cookie == nil {
+			continue
+		}
+		switch cookie.Name {
+		case "csrftoken":
+			csrfToken = cookie.Value
+		case "ds_user_id":
+			userID = cookie.Value
+		}
+	}
+	return csrfToken, userID
+}
+
+func BuildGQLData(sessionCSRF string, sessionUserID string) (map[string]string, map[string]string, error) {
 	const (
 		domain                = "www"
 		requestID             = "b"
@@ -483,6 +517,13 @@ func BuildGQLData() (map[string]string, map[string]string, error) {
 		"Content-Type":       "application/x-www-form-urlencoded",
 		"X-FB-Friendly-Name": polarisAction,
 	}
+	if sessionCSRF != "" {
+		// a session is available: drop the anonymous cookie header, which
+		// would otherwise overwrite the real cookies attached by the http
+		// client, and keep the csrf token consistent with them
+		delete(headers, "cookie")
+		headers["X-CSRFToken"] = sessionCSRF
+	}
 	body := map[string]string{
 		"__d":         domain,
 		"__a":         apiVersion,
@@ -503,6 +544,10 @@ func BuildGQLData() (map[string]string, map[string]string, error) {
 		"__spin_r":    rolloutHash,
 		"__spin_b":    buildType,
 		"__spin_t":    timestamp,
+	}
+	if sessionUserID != "" {
+		// instagram expects the request to declare the logged in user
+		body["__user"] = sessionUserID
 	}
 	return headers, body, nil
 }

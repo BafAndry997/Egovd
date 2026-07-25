@@ -16,6 +16,9 @@ tmp/
 downloads/
 logs/
 
+# session cookies: these hold live account tokens
+private/cookies/
+
 # i18n translations
 translate.*.toml
 
